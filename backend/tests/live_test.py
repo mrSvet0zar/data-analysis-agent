@@ -2,6 +2,7 @@
 
 Usage:  ./venv/Scripts/python.exe -m tests.live_test [sample_data/sales.csv]
 """
+
 import asyncio
 import sys
 
@@ -34,9 +35,12 @@ async def main():
 
     print("-" * 60)
     print(f"status : {result['status']}")
-    print(f"charts : {len(result['charts'])}  ->  "
-          f"{[c['chart_type'] + ':' + str(c['title']) for c in result['charts']]}")
-    print(f"report : {'yes (%d chars)' % len(result['report']) if result['report'] else 'none'}")
+    print(
+        f"charts : {len(result['charts'])}  ->  "
+        f"{[c['chart_type'] + ':' + str(c['title']) for c in result['charts']]}"
+    )
+    report_info = f"yes ({len(result['report'])} chars)" if result["report"] else "none"
+    print(f"report : {report_info}")
 
 
 if __name__ == "__main__":

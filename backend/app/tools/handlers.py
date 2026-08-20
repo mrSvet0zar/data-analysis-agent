@@ -5,6 +5,7 @@ model) plus the model-provided arguments, and returns a JSON-serializable dict.
 All handlers are defensive: any exception is returned as ``{"success": False,
 "error": ...}`` so a single bad tool call never crashes the agent loop.
 """
+
 from __future__ import annotations
 
 import json
@@ -17,6 +18,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 from app.config import settings
+from app.data_loader import load_df
 
 
 def _clean(obj):
@@ -26,15 +28,15 @@ def _clean(obj):
         return {str(k): _clean(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
         return [_clean(v) for v in obj]
-    if isinstance(obj, (np.integer,)):
+    if isinstance(obj, np.integer):
         return int(obj)
-    if isinstance(obj, (np.floating,)):
+    if isinstance(obj, np.floating):
         obj = float(obj)
     if isinstance(obj, float):
         if math.isnan(obj) or math.isinf(obj):
             return None
         return obj
-    if isinstance(obj, (np.bool_,)):
+    if isinstance(obj, np.bool_):
         return bool(obj)
     if isinstance(obj, np.ndarray):
         return _clean(obj.tolist())
@@ -42,14 +44,15 @@ def _clean(obj):
 
 
 def _load(file_path: str) -> pd.DataFrame:
-    return pd.read_csv(file_path)
+    df, _ = load_df(file_path)
+    return df
 
 
 class DataAnalysisTools:
     @staticmethod
     def read_csv(file_path: str) -> dict:
         try:
-            df = _load(file_path)
+            df, meta = load_df(file_path)
             return _clean(
                 {
                     "success": True,
@@ -59,6 +62,7 @@ class DataAnalysisTools:
                     "numeric_columns": df.select_dtypes(include=[np.number]).columns.tolist(),
                     "missing_values": df.isnull().sum().to_dict(),
                     "head": df.head(5).to_dict(orient="records"),
+                    "meta": meta,
                 }
             )
         except Exception as e:
@@ -147,7 +151,7 @@ class DataAnalysisTools:
             pairs = []
             cols = numeric.columns.tolist()
             for i, c1 in enumerate(cols):
-                for c2 in cols[i + 1:]:
+                for c2 in cols[i + 1 :]:
                     r = corr.loc[c1, c2]
                     if pd.notna(r) and abs(r) > 0.5:
                         pairs.append({"column1": c1, "column2": c2, "correlation": float(r)})
@@ -173,7 +177,7 @@ class DataAnalysisTools:
         try:
             df = _load(file_path)
 
-            def require(col: str, label: str):
+            def require(col: str | None, label: str) -> None:
                 if not col or col not in df.columns:
                     raise ValueError(
                         f"{label} '{col}' not found. Available columns: {df.columns.tolist()}"
@@ -215,7 +219,7 @@ class DataAnalysisTools:
 
             # Persist an HTML copy for reference and return Plotly JSON for the frontend.
             safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in title)[:60]
-            out_path = settings.OUTPUT_DIR / f"{safe or 'chart'}.html"
+            out_path = settings.output_dir / f"{safe or 'chart'}.html"
             fig.write_html(out_path)
 
             return {
@@ -247,7 +251,7 @@ class DataAnalysisTools:
             markdown = "\n".join(lines)
 
             safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in title)[:60]
-            report_path = settings.OUTPUT_DIR / f"{safe or 'report'}_report.md"
+            report_path = settings.output_dir / f"{safe or 'report'}_report.md"
             Path(report_path).write_text(markdown, encoding="utf-8")
 
             return {"success": True, "report_path": str(report_path), "report": markdown}

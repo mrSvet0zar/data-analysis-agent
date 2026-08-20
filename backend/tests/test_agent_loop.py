@@ -6,6 +6,7 @@ collects charts, captures the report, and terminates cleanly.
 
 Run:  ./venv/Scripts/python.exe -m tests.test_agent_loop
 """
+
 import asyncio
 import os
 import sys
@@ -25,6 +26,10 @@ def text_block(t):
 
 def tool_block(tool_id, name, tool_input):
     return SimpleNamespace(type="tool_use", id=tool_id, name=name, input=tool_input)
+
+
+def _usage(inp=1000, out=200):
+    return SimpleNamespace(input_tokens=inp, output_tokens=out)
 
 
 class FakeMessages:
@@ -48,6 +53,7 @@ class FakeClient:
 SCRIPT = [
     # Turn 1: read the CSV
     SimpleNamespace(
+        usage=_usage(),
         stop_reason="tool_use",
         content=[
             text_block("Let me inspect the data."),
@@ -56,6 +62,7 @@ SCRIPT = [
     ),
     # Turn 2: correlation + a chart
     SimpleNamespace(
+        usage=_usage(),
         stop_reason="tool_use",
         content=[
             tool_block("t2", "correlation_analysis", {}),
@@ -68,6 +75,7 @@ SCRIPT = [
     ),
     # Turn 3: generate the report
     SimpleNamespace(
+        usage=_usage(),
         stop_reason="tool_use",
         content=[
             tool_block(
@@ -79,6 +87,7 @@ SCRIPT = [
     ),
     # Turn 4: final answer
     SimpleNamespace(
+        usage=_usage(),
         stop_reason="end_turn",
         content=[text_block("Done — marketing spend strongly predicts revenue.")],
     ),
@@ -115,11 +124,25 @@ async def main():
     results = [s for s in emitted if s["type"] == "tool_result"]
     assert all(s["success"] for s in results), [s for s in results if not s["success"]]
 
+    # Token accounting: 4 turns × (1000 in + 200 out).
+    u = result["usage"]
+    assert u["input_tokens"] == 4000, u
+    assert u["output_tokens"] == 800, u
+    assert u["cost_usd"] > 0, u
+    assert u["iterations"] == 4, u
+
     print("\nPASS — agentic loop verified:")
     print(f"  steps emitted : {len(emitted)}")
     print(f"  tool calls    : {len(tool_calls)}")
     print(f"  charts        : {len(result['charts'])}")
     print(f"  report chars  : {len(result['report'])}")
+    print(f"  tokens        : {u['input_tokens']} in / {u['output_tokens']} out")
+    print(f"  cost estimate : ${u['cost_usd']}")
+
+
+async def test_agentic_loop():
+    """Pytest entrypoint — same scenario, assertions raise on failure."""
+    await main()
 
 
 if __name__ == "__main__":

@@ -1,8 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { openJobSocket } from '../api'
 import StepItem from './StepItem'
-import ChartGrid from './ChartGrid'
+
+// Plotly is heavy (~1.5 MB gzip); load it as a separate chunk only when
+// there are charts to render, so the initial page stays light.
+const ChartGrid = lazy(() => import('./ChartGrid'))
 
 export default function AgentProgress({ jobId, onReset }) {
   const [steps, setSteps] = useState([])
@@ -10,6 +13,7 @@ export default function AgentProgress({ jobId, onReset }) {
   const [result, setResult] = useState(null)
   const [charts, setCharts] = useState([])
   const [report, setReport] = useState(null)
+  const [usage, setUsage] = useState(null)
   const [error, setError] = useState(null)
   const scrollRef = useRef(null)
 
@@ -30,6 +34,7 @@ export default function AgentProgress({ jobId, onReset }) {
         setResult(data.result)
         setCharts(data.charts || [])
         setReport(data.report)
+        setUsage(data.usage || null)
         if (data.status === 'error') setError(data.error)
       } else if (data.type === 'error') {
         setStatus('error')
@@ -77,6 +82,28 @@ export default function AgentProgress({ jobId, onReset }) {
         </button>
       </div>
 
+      {usage && (usage.input_tokens != null || usage.cost_usd != null) && (
+        <div className="mb-6 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl bg-slate-800/40 px-4 py-3 text-sm ring-1 ring-slate-700">
+          <span className="text-slate-400">
+            🔢 Tokens{' '}
+            <span className="font-mono text-slate-200">
+              {(usage.input_tokens || 0).toLocaleString()} in /{' '}
+              {(usage.output_tokens || 0).toLocaleString()} out
+            </span>
+          </span>
+          <span className="text-slate-400">
+            💰 Est. cost{' '}
+            <span className="font-mono text-emerald-300">
+              ${Number(usage.cost_usd || 0).toFixed(4)}
+            </span>
+          </span>
+          <span className="text-slate-400">
+            🔁 Iterations{' '}
+            <span className="font-mono text-slate-200">{usage.iterations ?? '—'}</span>
+          </span>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
         {/* Timeline */}
         <div className="lg:col-span-2">
@@ -109,7 +136,15 @@ export default function AgentProgress({ jobId, onReset }) {
               <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">
                 Visualizations
               </h3>
-              <ChartGrid charts={charts} />
+              <Suspense
+                fallback={
+                  <div className="flex h-64 items-center justify-center rounded-2xl bg-slate-900/30 text-sm text-slate-500 ring-1 ring-slate-800">
+                    Loading charts…
+                  </div>
+                }
+              >
+                <ChartGrid charts={charts} />
+              </Suspense>
             </div>
           )}
 

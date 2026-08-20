@@ -1,8 +1,9 @@
 """Job persistence + live pub/sub.
 
 Two layers:
-- **SQLite** (via aiosqlite) durably stores every job, so results survive a
-  restart and memory doesn't grow without bound.
+- A **database** (SQLite by default, PostgreSQL when ``DATABASE_URL`` is set —
+  see ``app.db``) durably stores every job, so results survive a restart and
+  memory doesn't grow without bound.
 - **LiveJob** holds the in-flight state for a running job and pushes steps to
   subscribed WebSockets through per-subscriber queues (real push, not polling).
 
@@ -19,31 +20,12 @@ import time
 from pathlib import Path
 from typing import Any
 
-import aiosqlite
-
 from app.config import settings
 from app.data_loader import evict
+from app.db import Database, make_database
 from app.logging_config import get_logger, log_event
 
 logger = get_logger("store")
-
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS jobs (
-    job_id       TEXT PRIMARY KEY,
-    status       TEXT NOT NULL,
-    filename     TEXT,
-    request_text TEXT,
-    file_path    TEXT,
-    result       TEXT,
-    error        TEXT,
-    charts       TEXT,
-    report       TEXT,
-    steps        TEXT,
-    usage        TEXT,
-    created_at   REAL NOT NULL,
-    updated_at   REAL NOT NULL
-);
-"""
 
 
 class LiveJob:
@@ -85,16 +67,27 @@ class JobStore:
     def __init__(self) -> None:
         self._live: dict[str, LiveJob] = {}
         self.semaphore = asyncio.Semaphore(settings.max_concurrent_jobs)
-        self._db: aiosqlite.Connection | None = None
+        self._db: Database | None = None
+
+    @property
+    def backend(self) -> str | None:
+        """Which storage backend is active ('sqlite' / 'postgres'), if connected."""
+        return self._db.backend if self._db else None
+
+    @property
+    def connected(self) -> bool:
+        return self._db is not None
 
     async def init(self) -> None:
-        self._db = await aiosqlite.connect(settings.db_path)
-        await self._db.executescript(_SCHEMA)
-        await self._db.commit()
+        db = make_database()
+        await db.connect()
+        self._db = db
+        log_event(logger, logging.INFO, "store_ready", backend=db.backend)
 
     async def close(self) -> None:
         if self._db:
             await self._db.close()
+            self._db = None
 
     # --- creation & lifecycle ---
     async def create(
@@ -107,7 +100,6 @@ class JobStore:
             "created_at, updated_at) VALUES (?, 'running', ?, ?, ?, ?, ?)",
             (job_id, filename, request_text, file_path, now, now),
         )
-        await self._db.commit()
         live = LiveJob(job_id)
         self._live[job_id] = live
         return live
@@ -136,7 +128,6 @@ class JobStore:
                 job_id,
             ),
         )
-        await self._db.commit()
 
         payload = {
             "status": result.get("status", "completed"),
@@ -171,9 +162,7 @@ class JobStore:
                 "usage": {},
             }
         assert self._db is not None
-        self._db.row_factory = aiosqlite.Row
-        async with self._db.execute("SELECT * FROM jobs WHERE job_id=?", (job_id,)) as cur:
-            row = await cur.fetchone()
+        row = await self._db.fetchone("SELECT * FROM jobs WHERE job_id=?", (job_id,))
         if not row:
             return None
         return _row_to_dict(row)
@@ -183,11 +172,9 @@ class JobStore:
         """Delete jobs past their TTL and remove any lingering upload files."""
         cutoff = time.time() - settings.job_ttl_seconds
         assert self._db is not None
-        self._db.row_factory = aiosqlite.Row
-        async with self._db.execute(
+        rows = await self._db.fetchall(
             "SELECT job_id, file_path FROM jobs WHERE created_at < ?", (cutoff,)
-        ) as cur:
-            rows = list(await cur.fetchall())
+        )
         for row in rows:
             fp = row["file_path"]
             if fp:
@@ -198,7 +185,6 @@ class JobStore:
                     pass
             self._live.pop(row["job_id"], None)
         await self._db.execute("DELETE FROM jobs WHERE created_at < ?", (cutoff,))
-        await self._db.commit()
         if rows:
             log_event(logger, logging.INFO, "swept_expired_jobs", count=len(rows))
         return len(rows)
@@ -212,7 +198,7 @@ class JobStore:
             await asyncio.sleep(interval_seconds)
 
 
-def _row_to_dict(row: aiosqlite.Row) -> dict[str, Any]:
+def _row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "job_id": row["job_id"],
         "status": row["status"],

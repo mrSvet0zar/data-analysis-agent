@@ -44,10 +44,56 @@ docker run --rm -e PORT=8000 -e ANTHROPIC_API_KEY=sk-ant-... -p 8000:8000 agent-
 > must go through a shell — the Dockerfile's `CMD` uses
 > `sh -c "... --port ${PORT:-8000}"` for exactly this reason.
 
-> Note: Railway's filesystem is ephemeral — uploaded CSVs, generated charts, and
-> the SQLite job store are temporary. That's fine here (results are returned via
-> the API, and uploads are deleted after each analysis anyway). For durable job
-> history, attach a volume or point `DB_PATH` at managed Postgres.
+---
+
+## 1b. Durable job history (optional)
+
+By default the backend stores jobs in **SQLite inside the container**. Railway's
+filesystem is ephemeral, so a redeploy or restart wipes job history. Uploaded
+CSVs are deleted after each analysis anyway, and results are returned through the
+API, so this is fine for a demo — but here is how to make history durable.
+
+**Pick based on how many instances you run:**
+
+| | Use when | How |
+|---|---|---|
+| **Volume + SQLite** | a **single** instance (the common case) | attach a volume, set `DB_PATH` |
+| **PostgreSQL** | **two or more replicas**, or you want managed backups | add the Postgres plugin |
+
+A SQLite file on a volume cannot be shared safely across instances — that is the
+line where Postgres becomes necessary, not before.
+
+### Option A — Railway Volume (keeps SQLite)
+
+1. Service → **Data → Add Volume**, mount path `/data`.
+2. Add the variable `DB_PATH=/data/jobs.db`.
+3. Redeploy. `/ready` should report `"db_backend": "sqlite"`, and job history now
+   survives restarts.
+
+No code change: `DB_PATH` was already configurable.
+
+### Option B — Railway PostgreSQL (for multiple replicas)
+
+1. In the project: **New → Database → Add PostgreSQL**.
+2. In the **backend** service, reference the injected connection string —
+   add the variable `DATABASE_URL` with value `${{Postgres.DATABASE_URL}}`.
+3. Redeploy. The app detects `DATABASE_URL`, creates its schema on startup, and
+   `/ready` reports `"db_backend": "postgres"`.
+
+Also no code change — `app/db.py` picks the backend from configuration, and both
+backends are covered by the test suite (CI runs the Postgres tests against a
+service container).
+
+Try either mode locally first:
+
+```bash
+# Durable SQLite on a volume
+ANTHROPIC_API_KEY=sk-ant-... docker compose up --build
+
+# PostgreSQL
+ANTHROPIC_API_KEY=sk-ant-... \
+  docker compose -f docker-compose.yml -f docker-compose.postgres.yml up --build
+```
 
 ---
 

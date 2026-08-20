@@ -1,5 +1,11 @@
 # Local dev/prod-parity stack: backend API + built frontend.
-# Usage:  ANTHROPIC_API_KEY=sk-ant-... docker compose up --build
+#
+#   Durable SQLite on a volume (default — mirrors "Railway + volume"):
+#     ANTHROPIC_API_KEY=sk-ant-... docker compose up --build
+#
+#   PostgreSQL instead (mirrors "Railway + Postgres plugin", needed for replicas):
+#     ANTHROPIC_API_KEY=sk-ant-... \
+#       docker compose -f docker-compose.yml -f docker-compose.postgres.yml up --build
 services:
   backend:
     build: ./backend
@@ -9,6 +15,10 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-5}
       CORS_ORIGINS: http://localhost:5173,http://localhost:4173
+      # Job history lives on the named volume below, so it survives restarts.
+      DB_PATH: /data/jobs.db
+    volumes:
+      - job_data:/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
       interval: 10s
@@ -25,3 +35,6 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+
+volumes:
+  job_data:

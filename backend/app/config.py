@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     upload_dir: Path = Field(default=BASE_DIR / "uploads", alias="UPLOAD_DIR")
     output_dir: Path = Field(default=BASE_DIR / "outputs", alias="OUTPUT_DIR")
     db_path: Path = Field(default=BASE_DIR / "jobs.db", alias="DB_PATH")
+    # If set, jobs are stored in PostgreSQL instead of SQLite. Railway's Postgres
+    # plugin injects DATABASE_URL automatically. Needed for multi-replica deploys;
+    # for a single instance, pointing DB_PATH at a mounted volume is enough.
+    database_url: str = Field(default="", alias="DATABASE_URL")
     max_file_size: int = Field(default=50 * 1024 * 1024, alias="MAX_FILE_SIZE")
     max_rows: int = Field(default=1_000_000, alias="MAX_ROWS")
     # Rows above this are randomly sampled before analysis to bound memory/latency.

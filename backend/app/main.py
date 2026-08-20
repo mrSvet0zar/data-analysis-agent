@@ -89,13 +89,14 @@ async def health():
 @app.get("/ready")
 async def ready():
     """Readiness: dependencies (DB, API key) are configured."""
-    ok = store._db is not None and bool(settings.anthropic_api_key)
+    ok = store.connected and bool(settings.anthropic_api_key)
     return JSONResponse(
         status_code=200 if ok else 503,
         content={
             "ready": ok,
             "model": settings.anthropic_model,
-            "db": store._db is not None,
+            "db": store.connected,
+            "db_backend": store.backend,
             "api_key": bool(settings.anthropic_api_key),
         },
     )

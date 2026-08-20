@@ -8,6 +8,9 @@ from pathlib import Path
 os.environ["ANTHROPIC_API_KEY"] = "sk-ant-test-dummy"
 os.environ["DB_PATH"] = str(Path(tempfile.gettempdir()) / "agent_test_jobs.db")
 os.environ["API_AUTH_TOKEN"] = ""  # open by default in tests
+# Force the SQLite backend for the default suite, even if the dev shell exports
+# a DATABASE_URL. The Postgres backend has its own opt-in test module.
+os.environ["DATABASE_URL"] = ""
 
 import pytest  # noqa: E402
 

@@ -56,8 +56,11 @@ This started as a demo and was hardened toward production:
 
 - **Observability & cost** — per-run token accounting + USD cost estimate
   (surfaced in the UI), structured JSON logs with correlation ids.
-- **Reliability** — SQLite-backed job store (survives restarts), per-job timeout,
-  SDK retry/backoff, TTL sweep + upload cleanup.
+- **Reliability** — persistent job store, per-job timeout, SDK retry/backoff,
+  TTL sweep + upload cleanup. Storage is **pluggable**: SQLite by default (point
+  `DB_PATH` at a volume to make it durable), **PostgreSQL** automatically when
+  `DATABASE_URL` is set — which is what you need once you run more than one
+  replica, since a SQLite file on a volume can't be shared across instances.
 - **Real-time** — WebSocket **push** (per-subscriber queues), fully async
   (`AsyncAnthropic` + `asyncio.to_thread`).
 - **Robust ingestion** — encoding/delimiter sniffing, row caps, sampling of huge
@@ -77,7 +80,8 @@ agent/
 │   ├── app/
 │   │   ├── main.py          # FastAPI: /api/analyze, /ws/job, /health, /ready
 │   │   ├── agent.py         # the tool-use loop (token/cost tracking, retries)
-│   │   ├── store.py         # SQLite job store + WS pub/sub + TTL sweep
+│   │   ├── store.py         # job store + WS pub/sub + TTL sweep
+│   │   ├── db.py            # storage adapters: SQLite / PostgreSQL
 │   │   ├── data_loader.py   # robust, cached CSV loading
 │   │   ├── config.py        # Pydantic Settings (fail-fast)
 │   │   ├── security.py      # optional bearer-token auth
@@ -120,7 +124,13 @@ the agent work — with a live cost readout.
 
 ### Docker (both, prod-parity)
 ```bash
+# Durable SQLite on a named volume
 ANTHROPIC_API_KEY=sk-ant-... docker compose up --build
+```
+
+```bash
+# Same stack, but with PostgreSQL as the job store
+ANTHROPIC_API_KEY=sk-ant-... docker compose -f docker-compose.yml -f docker-compose.postgres.yml up --build
 ```
 
 ---
@@ -161,6 +171,8 @@ Key settings (full list in `.env.example`):
 | `MAX_CONCURRENT_JOBS` | `4` | caps simultaneous LLM runs |
 | `JOB_TIMEOUT_SECONDS` | `180` | per-job wall clock |
 | `MAX_ROWS` / `SAMPLE_OVER_ROWS` | `1e6` / `2e5` | ingestion bounds |
+| `DB_PATH` | `./jobs.db` | SQLite location — point at a volume for durability |
+| `DATABASE_URL` | *(empty)* | if set, use PostgreSQL instead of SQLite |
 
 ---
 

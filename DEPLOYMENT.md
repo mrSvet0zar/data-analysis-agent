@@ -13,9 +13,9 @@ the frontend.
 1. **New Project → Deploy from GitHub repo** → pick `data-analysis-agent`.
 2. In the service **Settings → Root Directory**, set it to **`backend`**.
    (The repo is a monorepo; Railway must build from the backend folder.)
-   - `backend/railway.json` already provides the start command
-     `uvicorn app.main:app --host 0.0.0.0 --port $PORT`, so Railway uses `$PORT`
-     automatically — no manual start command needed.
+   - `backend/railway.json` selects the **Dockerfile builder**, so Railway builds
+     the exact same image you can run locally. The container's `CMD` is the single
+     source of truth for how the app starts — no start command to set by hand.
 3. **Settings → Variables**, add:
 
    | Variable | Value |
@@ -27,11 +27,27 @@ the frontend.
 
 4. **Settings → Networking → Generate Domain** to get a public URL, e.g.
    `https://data-analysis-agent-production.up.railway.app`.
-5. Verify: open `https://<your-railway-url>/health` → should return
-   `{"status":"ok","model":"claude-sonnet-5"}`.
+5. Verify: `https://<your-railway-url>/health` returns `{"status":"ok"}`, and
+   `/ready` returns `{"ready":true,...}` (confirms DB + API key are wired up).
 
-> Note: Railway's filesystem is ephemeral — uploaded CSVs and generated chart
-> files are temporary, which is fine here (results are returned via the API).
+Reproduce the exact production image locally:
+
+```bash
+cd backend
+docker build -t agent-backend .
+docker run --rm -e PORT=8000 -e ANTHROPIC_API_KEY=sk-ant-... -p 8000:8000 agent-backend
+```
+
+> **`$PORT` gotcha.** Railway exec's a `railway.json` `startCommand` *without a
+> shell*, so a literal `--port $PORT` is passed unexpanded and uvicorn fails with
+> `Invalid value for '--port': '$PORT'`. Any start command that references `$PORT`
+> must go through a shell — the Dockerfile's `CMD` uses
+> `sh -c "... --port ${PORT:-8000}"` for exactly this reason.
+
+> Note: Railway's filesystem is ephemeral — uploaded CSVs, generated charts, and
+> the SQLite job store are temporary. That's fine here (results are returned via
+> the API, and uploads are deleted after each analysis anyway). For durable job
+> history, attach a volume or point `DB_PATH` at managed Postgres.
 
 ---
 
@@ -69,8 +85,10 @@ Vercel origin:
 |---------|-----|
 | `WebSocket connection failed` in prod | Ensure `VITE_API_URL` uses `https://` (the app derives `wss://` from it) and the Railway domain is generated & healthy. |
 | CORS error in browser console | `CORS_ORIGINS` on Railway must exactly match the Vercel origin (scheme + host, no trailing slash). |
-| Build fails on Railway | Confirm Root Directory is `backend`; check `runtime.txt` Python version. |
-| 502 on `/health` | Railway start command must bind `--host 0.0.0.0 --port $PORT` (already in `railway.json`). |
+| Build fails on Railway | Confirm Root Directory is `backend`; reproduce with `docker build -t agent-backend backend/` locally. |
+| `Invalid value for '--port': '$PORT'` | A start command referenced `$PORT` without a shell. Let the Dockerfile `CMD` start the app, or wrap the command in `sh -c '...'`. |
+| 502 on `/health` | The server must bind `--host 0.0.0.0` and the platform's `$PORT` (the Dockerfile `CMD` already does). |
+| `/ready` returns 503 | `ANTHROPIC_API_KEY` is missing on Railway, or the SQLite store failed to initialize — check the deploy logs. |
 
 ---
 

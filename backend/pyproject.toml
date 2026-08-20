@@ -1,0 +1,31 @@
+[project]
+name = "data-analysis-agent"
+version = "2.0.0"
+description = "Autonomous CSV data-analysis agent (FastAPI + Claude tool-use)"
+requires-python = ">=3.10"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+exclude = ["venv", "outputs", "uploads"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "W"]
+ignore = [
+    "B008",   # FastAPI uses function calls (File(), Form()) in defaults
+    "UP038",  # isinstance(x, A | B) is slower at runtime; keep tuple form
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+warn_unused_ignores = false
+check_untyped_defs = true
+exclude = ["venv", "tests", "sample_data"]

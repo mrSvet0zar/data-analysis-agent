@@ -4,7 +4,6 @@ Each Tool describes its JSON schema in Claude's `tools` format. Only the fields
 listed in `required` are mandatory; optional parameters (e.g. a column filter)
 are omitted so the model isn't forced to invent values.
 """
-from typing import Callable, Optional
 
 
 class Tool:
@@ -13,7 +12,7 @@ class Tool:
         name: str,
         description: str,
         properties: dict,
-        required: Optional[list[str]] = None,
+        required: list[str] | None = None,
     ):
         self.name = name
         self.description = description
@@ -104,7 +103,10 @@ TOOLS: list[Tool] = [
             },
             "x_column": {
                 "type": "string",
-                "description": "Column for the X axis (or the value column for histogram/boxplot). Not needed for heatmap.",
+                "description": (
+                    "Column for the X axis (or the value column for "
+                    "histogram/boxplot). Not needed for heatmap."
+                ),
             },
             "y_column": {
                 "type": "string",
